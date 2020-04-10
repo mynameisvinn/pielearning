@@ -11,8 +11,8 @@ print(">> using", device)
 
 # hyperparams
 n_epochs = 200
-threshold = .75
-batch_size = 12
+threshold = .8
+batch_size = 10
 
 print(">> loading data...")
 data_transforms = {
