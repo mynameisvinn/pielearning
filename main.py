@@ -11,7 +11,7 @@ print(">> using", device)
 
 # hyperparams
 n_epochs = 200
-threshold = .8
+threshold = .6
 batch_size = 10
 
 print(">> loading data...")
@@ -43,12 +43,13 @@ y_train = y_train.to(device)
 print("dataset", y_train)
 
 # unlabeled training data
-dataloaders = {x: torch.utils.data.DataLoader(image_datasets[x], batch_size=batch_size * 7, shuffle=True) for x in ['train', 'val']}
+# fixmatch uses 7x unlabeled data for every 1x of labeled data
+dataloaders = {x: torch.utils.data.DataLoader(image_datasets[x], batch_size=batch_size * 5, shuffle=True) for x in ['train', 'val']}
 X_unlabeled, _ = next(iter(dataloaders['train']))
 X_unlabeled = X_unlabeled.to(device)
 
 # test data
-dataloaders = {x: torch.utils.data.DataLoader(image_datasets[x], batch_size=250, shuffle=True) for x in ['train', 'val']}
+dataloaders = {x: torch.utils.data.DataLoader(image_datasets[x], batch_size=300, shuffle=True) for x in ['train', 'val']}
 X_test, y_test = next(iter(dataloaders['val']))
 X_test = X_test.to(device)
 y_test = y_test.to(device)
@@ -117,22 +118,30 @@ for epoch in range(n_epochs):
     preds = probs.argmax(dim=1, keepdim=True)
 
     # step 3: train against pseudo labels only if it's high confidence
+    # step 3: train against pseudo labels only if it's high confidence
     fake_loss = 0
     counter = 0
-    for prob, pred, c in zip(probs, preds, X_unlabeled):
-        if (prob[pred] > threshold):
+    for c in X_unlabeled:
+        
+        # first augmentation, weak
+        X_weak = transforms.RandomErasing(p=1, ratio=(1, 1), scale=(0.01, 0.01), value=.1)(c)
+        output = model_ft(X_weak.unsqueeze(0))
+        prob = F.softmax(output, dim=1)
+        pred = prob.argmax(dim=1, keepdim=True)
+
+        if (prob[0][pred[0]] > threshold):
             counter += 1
             
-            # step 4: generate strong augmentation data only if we'll use it
-            X_strong = transforms.RandomErasing(p=1, ratio=(1, 1), scale=(0.01, 0.01), value=.5)(c)
+            # step 4: generate strong augmentation data
+            X_strong = transforms.RandomErasing(p=1, ratio=(1, 1), scale=(0.2, 0.2), value=.3)(c)
 
-            # step 5: learn against pseudo labels
+            # step 5: learn with pseudo labels
             output = model_ft(X_strong.unsqueeze(0))
-            fake_loss += criterion(output, pred)
+            fake_loss += criterion(output, pred[0])
     if counter > 0:
         fake_loss = fake_loss / counter  # take average fake loss
             
-    total_loss = real_loss + 2*fake_loss
+    total_loss = real_loss + fake_loss
     total_loss.backward()
     optimizer_ft.step()
     
